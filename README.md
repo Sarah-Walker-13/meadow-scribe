@@ -15,3 +15,7 @@ and publishes curated datasets.
 高质量中文语料散落在代码仓库的注释与文档中。Candle Seeker 用微光照亮它们。
 
 Built with Python + jieba. Updated hourly.
+
+---
+
+*Last updated: June 2026*
