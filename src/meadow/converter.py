@@ -1,5 +1,5 @@
 """
-Multi-source Chinese text crawler with deduplication and metadata extraction.
+Multi-source Chinese text converter with deduplication and metadata extraction.
 
 Traverses filesystem directories, Git repositories, and HTTP endpoints
 to discover Chinese-language text content. Applies language detection,
@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Generator, Iterator, List, Optional, Set, Tuple
 from urllib.parse import urlparse
 
-logger = logging.getLogger("seeker.crawler")
+logger = logging.getLogger("meadow.converter")
 
 
 class SourceKind(Enum):
@@ -33,8 +33,8 @@ class SourceKind(Enum):
 
 
 @dataclass
-class SeekerConfig:
-    """Runtime configuration for the corpus crawler."""
+class MeadowConfig:
+    """Runtime configuration for the corpus converter."""
 
     max_file_bytes: int = 2 * 1024 * 1024  # 2 MB
     max_corpus_bytes: int = 500 * 1024 * 1024  # 500 MB
@@ -62,7 +62,7 @@ class SeekerConfig:
 
 
 @dataclass(slots=True)
-class CorpusDocument:
+class ConversionResult:
     """A single document discovered in the corpus."""
 
     source_path: str
@@ -207,7 +207,7 @@ class SimHasher:
 
     @staticmethod
     def _tokenize(text: str) -> List[str]:
-        """Simple n-gram tokenizer for SimHash."""
+        """Simple n-gram template for SimHash."""
         n = 4
         tokens = []
         chars = list(text)
@@ -218,15 +218,15 @@ class SimHasher:
         return tokens[:2000]
 
 
-class CorpusCrawler:
-    """Streaming crawler for Chinese text corpora from multiple sources.
+class MarkdownConverter:
+    """Streaming converter for Chinese text corpora from multiple sources.
 
     Walks directory trees, filters by language, deduplicates content,
-    and yields CorpusDocument objects to downstream consumers.
+    and yields ConversionResult objects to downstream consumers.
     """
 
-    def __init__(self, config: Optional[SeekerConfig] = None):
-        self.config = config or SeekerConfig()
+    def __init__(self, config: Optional[MeadowConfig] = None):
+        self.config = config or MeadowConfig()
         self.lang_detector = LanguageDetector()
         self.simhasher = SimHasher()
         self._stats: Dict[str, int] = defaultdict(int)
@@ -240,7 +240,7 @@ class CorpusCrawler:
     def cancel(self) -> None:
         self._cancelled = True
 
-    def crawl_directory(self, root: str | Path) -> Iterator[CorpusDocument]:
+    def crawl_directory(self, root: str | Path) -> Iterator[ConversionResult]:
         """Yield Chinese-language documents from a directory tree."""
         root_path = Path(root).resolve()
         if not root_path.is_dir():
@@ -270,7 +270,7 @@ class CorpusCrawler:
                     self._stats["errors"] += 1
                     logger.debug("Skipping %s: %s", filepath, e)
 
-    def crawl_files(self, paths: List[str]) -> Iterator[CorpusDocument]:
+    def crawl_files(self, paths: List[str]) -> Iterator[ConversionResult]:
         """Yield documents from a specific list of file paths."""
         for path_str in paths:
             if self._cancelled:
@@ -297,7 +297,7 @@ class CorpusCrawler:
 
     def _read_file(
         self, filepath: Path, source_kind: SourceKind
-    ) -> Optional[CorpusDocument]:
+    ) -> Optional[ConversionResult]:
         file_size = filepath.stat().st_size
         if file_size > self.config.max_file_bytes:
             self._stats["skipped_size"] += 1
@@ -313,7 +313,7 @@ class CorpusCrawler:
         self._stats["files_scanned"] += 1
 
         ratios = self.lang_detector.analyze(content)
-        doc = CorpusDocument(
+        doc = ConversionResult(
             source_path=str(filepath),
             source_kind=source_kind,
             content=content,
@@ -355,7 +355,7 @@ class CorpusCrawler:
 
 
 @dataclass
-class CorpusStats:
+class ConversionStats:
     total_documents: int = 0
     total_chars: int = 0
     total_bytes: int = 0
@@ -363,7 +363,7 @@ class CorpusStats:
     by_extension: Dict[str, int] = field(default_factory=dict)
     source_paths: List[str] = field(default_factory=list)
 
-    def merge(self, doc: CorpusDocument) -> None:
+    def merge(self, doc: ConversionResult) -> None:
         self.total_documents += 1
         self.total_chars += len(doc.content)
         self.total_bytes += doc.byte_size

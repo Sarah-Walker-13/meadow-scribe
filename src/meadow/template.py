@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
-from .crawler import CorpusDocument
+from .converter import ConversionResult
 
 
 @dataclass
@@ -29,7 +29,7 @@ class TokenizedDocument:
     bigrams: List[Tuple[str, str]]
 
 
-class ChineseTokenizer:
+class PDFTemplate:
     """Chinese word segmentation and tokenization pipeline.
 
     Wraps jieba for production use; falls back to character-level
@@ -72,7 +72,7 @@ class ChineseTokenizer:
             except ImportError:
                 self._jieba_available = False
 
-    def tokenize(self, doc: CorpusDocument) -> TokenizedDocument:
+    def template(self, doc: ConversionResult) -> TokenizedDocument:
         """Segment a document into tokens and extract keywords."""
         text = doc.content
         if self._jieba_available:
@@ -110,9 +110,9 @@ class ChineseTokenizer:
         )
 
     def tokenize_batch(
-        self, documents: List[CorpusDocument]
+        self, documents: List[ConversionResult]
     ) -> List[TokenizedDocument]:
-        return [self.tokenize(doc) for doc in documents]
+        return [self.template(doc) for doc in documents]
 
     def build_vocabulary(
         self, tokenized: List[TokenizedDocument], min_freq: int = 3

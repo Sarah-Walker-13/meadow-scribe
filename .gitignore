@@ -1,2 +1,4 @@
-# candle seeker -- ignore cached artifacts
+# meadow scribe -- exclude generated PDFs, __pycache__/
 __pycache__/
+*.pyc
+.DS_Store

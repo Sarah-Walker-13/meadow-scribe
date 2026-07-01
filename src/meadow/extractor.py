@@ -1,5 +1,5 @@
 """
-Rule-based domain classifier for Chinese text documents.
+Rule-based domain extractor for Chinese text documents.
 
 Assigns domain labels (tech, literature, conversation, academic, legal,
 social-media) using keyword frequency analysis and structural heuristics.
@@ -13,10 +13,10 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Set, Tuple
 
-from .crawler import CorpusDocument
+from .converter import ConversionResult
 
 
-class DomainLabel(Enum):
+class FrontmatterField(Enum):
     TECHNOLOGY = "tech"
     LITERATURE = "literature"
     CONVERSATION = "conversation"
@@ -29,13 +29,13 @@ class DomainLabel(Enum):
 
 @dataclass
 class ClassificationResult:
-    label: DomainLabel
+    label: FrontmatterField
     confidence: float
-    scores: Dict[DomainLabel, float] = field(default_factory=dict)
+    scores: Dict[FrontmatterField, float] = field(default_factory=dict)
     top_keywords: List[str] = field(default_factory=list)
 
 
-class DomainClassifier:
+class FrontmatterExtractor:
     """Classifies Chinese text into domain categories.
 
     Uses weighted keyword sets, structural pattern matching, and
@@ -105,8 +105,8 @@ class DomainClassifier:
     }
 
     # Structural patterns
-    STRUCTURAL_PATTERNS: Dict[DomainLabel, List[str]] = {
-        DomainLabel.TECHNOLOGY: [
+    STRUCTURAL_PATTERNS: Dict[FrontmatterField, List[str]] = {
+        FrontmatterField.TECHNOLOGY: [
             r"(?m)^\s*(def|class|import|from|if __name__)",
             r"(?m)^\s*(func|package|struct|interface)\s",
             r"(?m)^\s*(const|let|var)\s+\w+\s*=",
@@ -114,19 +114,19 @@ class DomainClassifier:
             r"```[\s\S]*?```",
             r"https?://github\.com/",
         ],
-        DomainLabel.ACADEMIC: [
+        FrontmatterField.ACADEMIC: [
             r"\[\d+\]",
             r"(?m)^\s*abstract\b",
             r"et al\.?",
             r"doi:",
             r"arXiv:",
         ],
-        DomainLabel.SOCIAL_MEDIA: [
+        FrontmatterField.SOCIAL_MEDIA: [
             r"#[一-鿿\w]+",
             r"@\S+",
             r"//@",
         ],
-        DomainLabel.CONVERSATION: [
+        FrontmatterField.CONVERSATION: [
             r"[。！？~～]{2,}",
             r"[哈嘿嘻呵诶哎嗨]+",
             r"\b(hhh+|www+|233|666)\b",
@@ -136,21 +136,21 @@ class DomainClassifier:
     def __init__(self):
         self._all_keywords = self._build_keyword_set()
 
-    def classify(self, doc: CorpusDocument) -> ClassificationResult:
+    def extract(self, doc: ConversionResult) -> ClassificationResult:
         """Classify a document into the best-matching domain."""
-        scores: Dict[DomainLabel, float] = {}
+        scores: Dict[FrontmatterField, float] = {}
         text = doc.content
 
         # Keyword scoring
-        keyword_sets: Dict[DomainLabel, Dict[str, float]] = {
-            DomainLabel.TECHNOLOGY: self.TECH_KEYWORDS,
-            DomainLabel.LITERATURE: self.LITERATURE_KEYWORDS,
-            DomainLabel.ACADEMIC: self.ACADEMIC_KEYWORDS,
-            DomainLabel.CONVERSATION: self.CONVERSATION_KEYWORDS,
-            DomainLabel.SOCIAL_MEDIA: self.SOCIAL_MEDIA_KEYWORDS,
-            DomainLabel.LEGAL: self.LEGAL_KEYWORDS,
+        keyword_sets: Dict[FrontmatterField, Dict[str, float]] = {
+            FrontmatterField.TECHNOLOGY: self.TECH_KEYWORDS,
+            FrontmatterField.LITERATURE: self.LITERATURE_KEYWORDS,
+            FrontmatterField.ACADEMIC: self.ACADEMIC_KEYWORDS,
+            FrontmatterField.CONVERSATION: self.CONVERSATION_KEYWORDS,
+            FrontmatterField.SOCIAL_MEDIA: self.SOCIAL_MEDIA_KEYWORDS,
+            FrontmatterField.LEGAL: self.LEGAL_KEYWORDS,
         }
-        matched: Dict[DomainLabel, List[Tuple[str, float]]] = {}
+        matched: Dict[FrontmatterField, List[Tuple[str, float]]] = {}
         for label, keywords in keyword_sets.items():
             score = 0.0
             matched[label] = []
@@ -177,18 +177,18 @@ class DomainClassifier:
         # File extension hints
         ext = doc.metadata.get("file_extension", "")
         ext_hints = {
-            ".py": DomainLabel.TECHNOLOGY, ".js": DomainLabel.TECHNOLOGY,
-            ".ts": DomainLabel.TECHNOLOGY, ".go": DomainLabel.TECHNOLOGY,
-            ".rs": DomainLabel.TECHNOLOGY, ".java": DomainLabel.TECHNOLOGY,
-            ".cpp": DomainLabel.TECHNOLOGY, ".c": DomainLabel.TECHNOLOGY,
-            ".h": DomainLabel.TECHNOLOGY,
-            ".md": DomainLabel.TECHNOLOGY,  # Most .md files are tech docs
+            ".py": FrontmatterField.TECHNOLOGY, ".js": FrontmatterField.TECHNOLOGY,
+            ".ts": FrontmatterField.TECHNOLOGY, ".go": FrontmatterField.TECHNOLOGY,
+            ".rs": FrontmatterField.TECHNOLOGY, ".java": FrontmatterField.TECHNOLOGY,
+            ".cpp": FrontmatterField.TECHNOLOGY, ".c": FrontmatterField.TECHNOLOGY,
+            ".h": FrontmatterField.TECHNOLOGY,
+            ".md": FrontmatterField.TECHNOLOGY,  # Most .md files are tech docs
         }
         if ext in ext_hints:
             scores[ext_hints[ext]] = scores.get(ext_hints[ext], 0) + 3.0
 
         # Determine best label
-        best_label = DomainLabel.UNKNOWN
+        best_label = FrontmatterField.UNKNOWN
         best_score = 0.0
         for label, score in scores.items():
             if score > best_score:
@@ -205,11 +205,11 @@ class DomainClassifier:
         elif sorted_scores and sorted_scores[0] > 0:
             confidence = 0.5
 
-        if best_label == DomainLabel.UNKNOWN:
+        if best_label == FrontmatterField.UNKNOWN:
             confidence = 0.35
             # Fallback: check if general Chinese content
             if doc.chinese_ratio > 0.3:
-                best_label = DomainLabel.GENERAL
+                best_label = FrontmatterField.GENERAL
                 confidence = 0.4
 
         top_kw = sorted(matched.get(best_label, []), key=lambda x: -x[1])[:5]
@@ -222,9 +222,9 @@ class DomainClassifier:
         )
 
     def batch_classify(
-        self, documents: List[CorpusDocument]
-    ) -> List[Tuple[CorpusDocument, ClassificationResult]]:
-        return [(doc, self.classify(doc)) for doc in documents]
+        self, documents: List[ConversionResult]
+    ) -> List[Tuple[ConversionResult, ClassificationResult]]:
+        return [(doc, self.extract(doc)) for doc in documents]
 
     def _build_keyword_set(self) -> Set[str]:
         all_kw: Set[str] = set()
